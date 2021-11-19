@@ -9,6 +9,14 @@
 - Adds support for CoreText for matching font descriptions and font fallback (#479).
 - Adds support for font feature settings (#520).
 
+#### Grid-PR induced changes
+
+- Improved VT backend performance (#342).
+- Improved text selection behaviour.
+- Adds `mouse_block_selection_modifier` configuration key.
+- Adds configuration option `profiles.*.copy_last_mark_range_offset` (default `0`) to adjust where to
+  start looking upwards for the `CopyPreviousMarkRange` action.
+
 ### 0.2.2 (2021-11-19)
 
 - Fixes input mapping containing `Control` modifier.
