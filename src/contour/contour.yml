@@ -275,7 +275,9 @@ color_schemes:
             foreground: '#d5d8d6'
 
         # Mandates the color of the cursor.
-        cursor: '#b0b030'
+        cursor:
+            default: CellBackground
+            text: CellForeground
 
         # color to pick for hyperlinks decoration, when hovering
         hyperlink_decoration:

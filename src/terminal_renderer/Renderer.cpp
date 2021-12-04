@@ -31,13 +31,15 @@
 #include <memory>
 
 using std::array;
-using std::scoped_lock;
 using std::chrono::steady_clock;
+using std::get;
+using std::holds_alternative;
 using std::make_unique;
 using std::move;
 using std::nullopt;
 using std::optional;
 using std::reference_wrapper;
+using std::scoped_lock;
 using std::tuple;
 using std::unique_ptr;
 using std::vector;
@@ -159,12 +161,13 @@ Renderer::Renderer(PageSize _screenSize,
     fontDescriptions_{ _fontDescriptions },
     fonts_{ loadFontKeys(fontDescriptions_, *textShaper_) },
     gridMetrics_{ loadGridMetrics(fonts_.regular, _screenSize, *textShaper_) },
+    colorPalette_{ _colorPalette },
     backgroundOpacity_{ _backgroundOpacity },
     backgroundRenderer_{ gridMetrics_, _colorPalette.defaultBackground },
     imageRenderer_{ cellSize() },
     textRenderer_{ gridMetrics_, *textShaper_, fontDescriptions_, fonts_ },
     decorationRenderer_{ gridMetrics_, _hyperlinkNormal, _hyperlinkHover },
-    cursorRenderer_{ gridMetrics_, CursorShape::Block, _colorPalette.cursor }
+    cursorRenderer_{ gridMetrics_, CursorShape::Block }
 {
 }
 
@@ -298,7 +301,16 @@ uint64_t Renderer::render(Terminal& _terminal,
     {
         auto const cursor = *cursorOpt;
         cursorRenderer_.setShape(cursor.shape);
-        cursorRenderer_.render(gridMetrics_.map(cursor.position), cursor.width);
+        auto const cursorColor = [&]()
+        {
+            if (holds_alternative<CellForegroundColor>(colorPalette_.cursor.color))
+                return colorPalette_.defaultForeground;
+            else if (holds_alternative<CellBackgroundColor>(colorPalette_.cursor.color))
+                return colorPalette_.defaultBackground;
+            else
+                return get<RGBColor>(colorPalette_.cursor.color);
+        }();
+        cursorRenderer_.render(gridMetrics_.map(cursor.position), cursor.width, cursorColor);
     }
 
     renderTarget().execute();

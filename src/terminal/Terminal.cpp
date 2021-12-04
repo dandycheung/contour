@@ -48,15 +48,40 @@ namespace // {{{ helpers
             value.pop_back();
     }
 
-    tuple<RGBColor, RGBColor> makeColors(ColorPalette const& _colorPalette, Cell const& _cell, bool _reverseVideo, bool _selected)
+    tuple<RGBColor, RGBColor> makeColors(ColorPalette const& _colorPalette,
+                                         Cell const& _cell,
+                                         bool _reverseVideo,
+                                         bool _selected,
+                                         bool _isCursor)
     {
         auto const [fg, bg] = _cell.attributes().makeColors(_colorPalette, _reverseVideo);
-        if (!_selected)
+        if (!_selected && !_isCursor)
             return tuple{fg, bg};
 
-        auto const a = _colorPalette.selectionForeground.value_or(bg);
-        auto const b = _colorPalette.selectionBackground.value_or(fg);
-        return tuple{a, b};
+        auto const selectionFg = _colorPalette.selectionForeground.value_or(bg);
+        auto const selectionBg = _colorPalette.selectionBackground.value_or(fg);
+        if (!_isCursor)
+            return tuple{selectionFg, selectionBg};
+
+        auto const cursorFg = [&]()
+        {
+            if (holds_alternative<CellForegroundColor>(_colorPalette.cursor.textOverrideColor))
+                return selectionFg;
+            if (holds_alternative<CellBackgroundColor>(_colorPalette.cursor.textOverrideColor))
+                return selectionBg;
+            return get<RGBColor>(_colorPalette.cursor.textOverrideColor);
+        }();
+
+        auto const cursorBg = [&]()
+        {
+            if (holds_alternative<CellForegroundColor>(_colorPalette.cursor.color))
+                return selectionFg;
+            if (holds_alternative<CellBackgroundColor>(_colorPalette.cursor.color))
+                return selectionBg;
+            return get<RGBColor>(_colorPalette.cursor.color);
+        }();
+
+        return tuple{cursorFg, cursorBg};
     }
 
     void logRenderBufferSwap(bool _success, uint64_t _frameID)
@@ -276,6 +301,8 @@ void Terminal::refreshRenderBuffer(RenderBuffer& _output)
 
 void Terminal::refreshRenderBufferInternal(RenderBuffer& _output)
 {
+    //TODO(pr) don't use now() but _now
+    tick(chrono::steady_clock::now());//TODO(pr): initial blinking at startup missing
     auto const reverseVideo = screen_.isModeEnabled(terminal::DECMode::ReverseVideo);
     auto const baseLine =
         viewport_.absoluteScrollOffset().
@@ -360,13 +387,17 @@ void Terminal::refreshRenderBufferInternal(RenderBuffer& _output)
 
     int lineNr = 1;
     screen_.render(
-        [&](Coordinate const& _pos, Cell const& _cell) // mutable
+        [&](Coordinate _pos, Cell const& _cell) // mutable
         {
             auto const absolutePos = Coordinate{baseLine + (_pos.row - 1), _pos.column};
             auto const selected = isSelectedAbsolute(absolutePos);
-            auto const [fg, bg] = makeColors(screen_.colorPalette(), _cell, reverseVideo, selected);
-
+            auto const isCursor = _pos == screen_.realCursorPosition();
+            if (isCursor)
+                _output.cursor = renderCursor();
+            auto const [fg, bg] = makeColors(screen_.colorPalette(), _cell, reverseVideo, selected,
+                                             isCursor && _output.cursor.has_value());
             auto const cellEmpty = (_cell.codepoints().empty() || _cell.codepoints()[0] == 0x20)
+                                && !(isCursor && _output.cursor.has_value())
 #if defined(LIBTERMINAL_IMAGES)
                                 && !_cell.imageFragment().has_value()
 #endif
@@ -420,16 +451,11 @@ void Terminal::refreshRenderBufferInternal(RenderBuffer& _output)
             cellAtMouse.hyperlink()->state = HyperlinkState::Inactive;
     }
     #endif
-
-    _output.cursor = renderCursor();
 }
 
 optional<RenderCursor> Terminal::renderCursor()
 {
-    bool const shouldDisplayCursor = screen_.cursor().visible
-        && (cursorDisplay() == CursorDisplay::Steady || cursorBlinkActive());
-
-    if (!shouldDisplayCursor || !viewport().isLineVisible(screen_.cursor().position.row))
+    if (!cursorCurrentlyVisible() || !viewport().isLineVisible(screen_.cursor().position.row))
         return nullopt;
 
     // TODO: check if CursorStyle has changed, and update render context accordingly.

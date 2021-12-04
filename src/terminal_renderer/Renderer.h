@@ -145,6 +145,7 @@ class Renderer : public Renderable {
 
     GridMetrics gridMetrics_;
 
+    ColorPalette const& colorPalette_;
     Opacity backgroundOpacity_;
 
     std::mutex imageDiscardLock_;               //!< Lock guard for accessing discardImageQueue_.
