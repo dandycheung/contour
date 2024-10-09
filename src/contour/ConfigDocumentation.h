@@ -125,6 +125,14 @@ constexpr StringLiteral SeachModeSwitch {
     "\n"
 };
 
+constexpr StringLiteral InsertAfterYank {
+    "{comment} Whether or not to switch from normal mode into insert after yank command. If this value is "
+    "set to true,\n"
+    "{comment} it will go to insert mode, otherwise it will stay in normal mode.\n"
+    "insert_after_yank: {}\n"
+    "\n"
+};
+
 constexpr StringLiteral CopyLastMarkRangeOffset {
     "{comment} Advanced value that is useful when CopyPreviousMarkRange is used \n"
     "{comment} with multiline-prompts. This offset value is being added to the \n"
@@ -334,6 +342,9 @@ constexpr StringLiteral DrawBoldTextWithBrightColors {
 
 constexpr StringLiteral Colors {
     "{comment} Specifies a colorscheme to use (alternatively the colors can be inlined).\n"
+    "{comment} Or choose from existing default palettes:\n"
+    "{comment} contour, monokai, one-dark, one-light, gruvbox-light, gruvbox-dark,\n"
+    "{comment} solarized-light, solarized-dark, papercolor-light, papercolor-dark.\n"
     "{comment}\n"
     "{comment} This can be either the name to a single colorscheme to always use,\n"
     "{comment} or a map with two keys (dark and light) to determine the color scheme to use for each.\n"
@@ -755,6 +766,12 @@ constexpr StringLiteral InputMappings {
     "moving "
     "upwards).\n"
     "{comment} - SendChars         Writes given characters in `chars` member to the applications input.\n"
+    "{comment} - SwitchToTab       Switches to the tab position, given by extra parameter \"position\".\n"
+    "{comment}                     The positions start at number 1.\n"
+    "{comment} - SwitchToTabLeft   Switches to the tab left of the current tab.\n"
+    "{comment} - SwitchToTabRight  Switches to the tab right of the current tab.\n"
+    "{comment} - CreateNewTab      Creates a new tab.\n"
+    "{comment} - CloseTab          Closes the current tab.\n"
     "{comment} - ToggleAllKeyMaps  Disables/enables responding to all keybinds (this keybind will be "
     "preserved "
     "when disabling all others).\n"

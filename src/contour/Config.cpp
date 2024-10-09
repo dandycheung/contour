@@ -2,6 +2,8 @@
 #include <contour/Actions.h>
 #include <contour/Config.h>
 
+#include <vtbackend/ColorPalette.h>
+
 #include <text_shaper/font.h>
 
 #include <crispy/StrongHash.h>
@@ -99,7 +101,7 @@ namespace
     {
         if (!fs::is_regular_file(path))
             if (auto const ec = createDefaultConfig(path); ec)
-                throw runtime_error { fmt::format(
+                throw runtime_error { std::format(
                     "Could not create directory {}. {}", path.parent_path().string(), ec.message()) };
     }
 
@@ -117,6 +119,10 @@ namespace
                 locations.emplace_back(string(dir));
 
         locations.emplace_back("/usr/share/terminfo");
+
+        // BSD locations
+        locations.emplace_back("/usr/local/share/terminfo");
+        locations.emplace_back("/usr/local/share/site-terminfo");
 
         return locations;
     }
@@ -144,7 +150,7 @@ namespace
     #if defined(__APPLE__)
                 // I realized that on Apple the `tic` command sometimes installs
                 // the terminfo files into weird paths.
-                if (access((prefix / fmt::format("{:02X}", term.at(0)) / term).string().c_str(), R_OK) == 0)
+                if (access((prefix / std::format("{:02X}", term.at(0)) / term).string().c_str(), R_OK) == 0)
                     return term;
     #endif
             }
@@ -340,6 +346,7 @@ void YAMLConfigReader::load(Config& c)
         loadFromEntry("renderer.tile_direct_mapping", c.textureAtlasDirectMapping);
         loadFromEntry("renderer.tile_hastable_slots", c.textureAtlasHashtableSlots);
         loadFromEntry("renderer.tile_cache_count", c.textureAtlasTileCount);
+        loadFromEntry("renderer.backend", c.renderingBackend);
         loadFromEntry("bypass_mouse_protocol_modifier", c.bypassMouseProtocolModifiers);
         loadFromEntry("on_mouse_select", c.onMouseSelection);
         loadFromEntry("mouse_block_selection_modifier", c.mouseBlockSelectionModifiers);
@@ -394,6 +401,7 @@ void YAMLConfigReader::loadFromEntry(YAML::Node const& node, std::string const& 
         loadFromEntry(child, "fullscreen", where.fullscreen);
         loadFromEntry(child, "maximized", where.maximized);
         loadFromEntry(child, "search_mode_switch", where.searchModeSwitch);
+        loadFromEntry(child, "insert_after_yank", where.insertAfterYank);
         loadFromEntry(child, "bell", where.bell);
         loadFromEntry(child, "wm_class", where.wmClass);
         loadFromEntry(child, "margins", where.margins);
@@ -487,6 +495,12 @@ void YAMLConfigReader::loadFromEntry(YAML::Node const& node,
 {
     logger()("color palette loading {}", entry);
     auto child = node[entry];
+
+    if (vtbackend::defaultColorPalettes(entry, where))
+    {
+        logger()("Loaded predefined color palette {}", entry);
+        return;
+    }
 
     if (!child) // can not load directly from config file
     {
@@ -1372,7 +1386,7 @@ void YAMLConfigReader::defaultSettings(vtpty::Process::ExecInfo& shell)
 {
     shell.env["TERMINAL_NAME"] = "contour";
     shell.env["TERMINAL_VERSION_TRIPLE"] =
-        fmt::format("{}.{}.{}", CONTOUR_VERSION_MAJOR, CONTOUR_VERSION_MINOR, CONTOUR_VERSION_PATCH);
+        std::format("{}.{}.{}", CONTOUR_VERSION_MAJOR, CONTOUR_VERSION_MINOR, CONTOUR_VERSION_PATCH);
     shell.env["TERMINAL_VERSION_STRING"] = CONTOUR_VERSION_STRING;
 
     // {{{ Populate environment variables
@@ -1718,6 +1732,16 @@ std::optional<actions::Action> YAMLConfigReader::parseAction(YAML::Node const& n
                 return std::nullopt;
         }
 
+        if (holds_alternative<actions::SwitchToTab>(action))
+        {
+            if (auto position = node["position"]; position.IsScalar())
+            {
+                return actions::SwitchToTab { position.as<int>() };
+            }
+            else
+                return std::nullopt;
+        }
+
         if (holds_alternative<actions::NewTerminal>(action))
         {
             if (auto profile = node["profile"]; profile && profile.IsScalar())
@@ -1953,26 +1977,23 @@ std::string createString(Config const& c)
     };
 
     auto const processWithDoc = [&](auto&& docString, auto... val) {
-        doc.append(
-            fmt::format(fmt::runtime(writer.process(docString.value, val...)), fmt::arg("comment", "#")));
+        doc.append(helper::replaceCommentPlaceholder(writer.process(docString.value, val...)));
     };
 
     auto const processWordDelimiters = [&]() {
         auto wordDelimiters = c.wordDelimiters.value();
         wordDelimiters = std::regex_replace(wordDelimiters, std::regex("\\\\"), "\\$&"); /* \ -> \\ */
         wordDelimiters = std::regex_replace(wordDelimiters, std::regex("\""), "\\$&");   /* " -> \" */
-        doc.append(
-            fmt::format(fmt::runtime(writer.process(documentation::WordDelimiters.value, wordDelimiters)),
-                        fmt::arg("comment", "#")));
+        doc.append(helper::replaceCommentPlaceholder(
+            writer.process(documentation::WordDelimiters.value, wordDelimiters)));
     };
 
     auto const processExtendedWordDelimiters = [&]() {
         auto wordDelimiters = c.extendedWordDelimiters.value();
         wordDelimiters = std::regex_replace(wordDelimiters, std::regex("\\\\"), "\\$&"); /* \ -> \\ */
         wordDelimiters = std::regex_replace(wordDelimiters, std::regex("\""), "\\$&");   /* " -> \" */
-        doc.append(fmt::format(
-            fmt::runtime(writer.process(documentation::ExtendedWordDelimiters.value, wordDelimiters)),
-            fmt::arg("comment", "#")));
+        doc.append(helper::replaceCommentPlaceholder(
+            writer.process(documentation::ExtendedWordDelimiters.value, wordDelimiters)));
     };
 
     if (c.platformPlugin.value().empty())
@@ -2017,12 +2038,12 @@ std::string createString(Config const& c)
     });
 
     // inside profiles:
-    doc.append(fmt::format(fmt::runtime(c.profiles.documentation), fmt::arg("comment", "#")));
+    doc.append(helper::replaceCommentPlaceholder(c.profiles.documentation));
     {
         const auto _ = typename Writer::Offset {};
         for (auto&& [name, entry]: c.profiles.value())
         {
-            doc.append(fmt::format("    {}: \n", name));
+            doc.append(std::format("    {}: \n", name));
             {
                 const auto _ = typename Writer::Offset {};
                 process(entry.shell);
@@ -2041,6 +2062,7 @@ std::string createString(Config const& c)
                 process(entry.fullscreen);
                 process(entry.maximized);
                 process(entry.searchModeSwitch);
+                process(entry.insertAfterYank);
                 process(entry.bell);
                 process(entry.wmClass);
                 process(entry.terminalId);
@@ -2144,11 +2166,11 @@ std::string createString(Config const& c)
         };
     }
 
-    doc.append(fmt::format(fmt::runtime(c.colorschemes.documentation), fmt::arg("comment", "#")));
+    doc.append(helper::replaceCommentPlaceholder(c.colorschemes.documentation));
     writer.scoped([&]() {
         for (auto&& [name, entry]: c.colorschemes.value())
         {
-            doc.append(fmt::format("    {}: \n", name));
+            doc.append(std::format("    {}: \n", name));
             {
                 const auto _ = typename Writer::Offset {};
                 processWithDoc(documentation::DefaultColors,
@@ -2276,7 +2298,7 @@ std::string createString(Config const& c)
         }
     });
 
-    doc.append(fmt::format(fmt::runtime(c.inputMappings.documentation), fmt::arg("comment", "#")));
+    doc.append(helper::replaceCommentPlaceholder(c.inputMappings.documentation));
     {
         const auto _ = typename Writer::Offset {};
         for (auto&& entry: c.inputMappings.value().keyMappings)

@@ -66,7 +66,7 @@ namespace
 {
     string unhandledExceptionMessage(string_view const& where, exception const& e)
     {
-        return fmt::format("{}: Unhandled exception caught ({}). {}", where, typeid(e).name(), e.what());
+        return std::format("{}: Unhandled exception caught ({}). {}", where, typeid(e).name(), e.what());
     }
 
     void setThreadName(char const* name)
@@ -235,20 +235,15 @@ void TerminalSession::detachDisplay(display::TerminalDisplay& display)
 
 void TerminalSession::attachDisplay(display::TerminalDisplay& newDisplay)
 {
-    sessionLog()("Attaching display.");
-    // newDisplay.setSession(*this); // NB: we're being called by newDisplay!
-    _display = &newDisplay;
+    sessionLog()("Attaching session to display {}x{}.", newDisplay.width(), newDisplay.height());
 
-    setContentScale(newDisplay.contentScale());
+    // We're being called by newDisplay!
+    _display = &newDisplay;
 
     {
         // NB: Inform connected TTY and local Screen instance about initial cell pixel size.
-        auto const pixels = _display->cellSize() * _terminal.pageSize();
-        // auto const pixels =
-        //     ImageSize { _display->cellSize().width * boxed_cast<Width>(_terminal.pageSize().columns),
-        //                 _display->cellSize().height * boxed_cast<Height>(_terminal.pageSize().lines) };
         auto const l = scoped_lock { _terminal };
-        _terminal.resizeScreen(_terminal.pageSize(), pixels);
+        _terminal.resizeScreen(_terminal.pageSize(), _display->pixelSize());
         _terminal.setRefreshRate(_display->refreshRate());
     }
 
@@ -268,10 +263,14 @@ void TerminalSession::scheduleRedraw()
 
 void TerminalSession::start()
 {
-    sessionLog()("Starting terminal session.");
-    _terminal.device().start();
-    _screenUpdateThread = make_unique<std::thread>(bind(&TerminalSession::mainLoop, this));
-    _exitWatcherThread->start(QThread::LowPriority);
+    // ensure that we start only once
+    if (!_screenUpdateThread)
+    {
+        sessionLog()("Starting terminal session.");
+        _terminal.device().start();
+        _screenUpdateThread = make_unique<std::thread>(bind(&TerminalSession::mainLoop, this));
+        _exitWatcherThread->start(QThread::LowPriority);
+    }
 }
 
 void TerminalSession::mainLoop()
@@ -544,7 +543,7 @@ void TerminalSession::copyToClipboard(std::string_view data)
     if (!_display)
         return;
 
-    _display->post([this, data = string(data)]() { _display->copyToClipboard(data); });
+    _display->post([data = string(data)]() { display::TerminalDisplay::copyToClipboard(data); });
 }
 
 void TerminalSession::openDocument(std::string_view fileOrUrl)
@@ -616,7 +615,7 @@ void TerminalSession::onClosed()
         auto constexpr TextLines = array<string_view, 2> { "Shell terminated too quickly.",
                                                            "The window will not be closed automatically." };
         for (auto const text: TextLines)
-            _terminal.writeToScreen(fmt::format("\r\n{}{}{}", SGR, EL, text));
+            _terminal.writeToScreen(std::format("\r\n{}{}{}", SGR, EL, text));
         _terminal.writeToScreen("\r\n");
         _terminatedAndWaitingForKeyPress = true;
         return;
@@ -701,10 +700,10 @@ void TerminalSession::requestWindowResize(LineCount lines, ColumnCount columns)
     _display->post([this, lines, columns]() { _display->resizeWindow(lines, columns); });
 }
 
-void TerminalSession::adaptToWidgetSize()
+void TerminalSession::resizeTerminalToDisplaySize()
 {
     if (_display)
-        _display->post([this]() { _display->adaptToWidgetSize(); });
+        _display->post([this]() { _display->resizeTerminalToDisplaySize(); });
 }
 
 void TerminalSession::requestWindowResize(Width width, Height height)
@@ -799,17 +798,18 @@ void TerminalSession::sendCharEvent(
                modifiers,
                crispy::escape(unicode::convert_to<char>(value)));
 
-    assert(_display != nullptr);
-
-    if (_terminatedAndWaitingForKeyPress && eventType == KeyboardEventType::Press)
+    if (_display)
     {
-        sessionLog()("Terminated and waiting for key press. Closing display.");
-        _display->closeDisplay();
-        return;
-    }
+        if (_terminatedAndWaitingForKeyPress && eventType == KeyboardEventType::Press)
+        {
+            sessionLog()("Terminated and waiting for key press. Closing display.");
+            _display->closeDisplay();
+            return;
+        }
 
-    if (_profile.mouseHideWhileTyping.value())
-        _display->setMouseCursorShape(MouseCursorShape::Hidden);
+        if (_profile.mouseHideWhileTyping.value())
+            _display->setMouseCursorShape(MouseCursorShape::Hidden);
+    }
 
     if (eventType != KeyboardEventType::Release)
     {
@@ -1354,6 +1354,37 @@ bool TerminalSession::operator()(actions::WriteScreen const& event)
     terminal().writeToScreen(event.chars);
     return true;
 }
+
+bool TerminalSession::operator()(actions::CreateNewTab)
+{
+    emit createNewTab();
+    return true;
+}
+
+bool TerminalSession::operator()(actions::CloseTab)
+{
+    emit closeTab();
+    return true;
+}
+
+bool TerminalSession::operator()(actions::SwitchToTab const& event)
+{
+    emit switchToTab(event.position);
+    return true;
+}
+
+bool TerminalSession::operator()(actions::SwitchToTabLeft)
+{
+    emit switchToTabLeft();
+    return true;
+}
+
+bool TerminalSession::operator()(actions::SwitchToTabRight)
+{
+    emit switchToTabRight();
+    return true;
+}
+
 // }}}
 // {{{ implementation helpers
 void TerminalSession::setDefaultCursor()
@@ -1463,7 +1494,6 @@ void TerminalSession::activateProfile(string const& newProfileName)
     _profileName = newProfileName;
     _profile = *newProfile;
     configureTerminal();
-    configureDisplay();
 }
 
 void TerminalSession::configureTerminal()
@@ -1496,6 +1526,7 @@ void TerminalSession::configureTerminal()
     _terminal.setHighlightTimeout(_profile.highlightTimeout.value());
     _terminal.viewport().setScrollOff(_profile.modalCursorScrollOff.value());
     _terminal.inputHandler().setSearchModeSwitch(_profile.searchModeSwitch.value());
+    _terminal.settings().isInsertAfterYank = _profile.insertAfterYank.value();
 }
 
 void TerminalSession::configureCursor(config::CursorConfig const& cursorConfig)
@@ -1535,7 +1566,7 @@ void TerminalSession::configureDisplay()
 
     _terminal.setRefreshRate(_display->refreshRate());
     _display->setFonts(_profile.fonts.value());
-    adaptToWidgetSize();
+    resizeTerminalToDisplaySize();
 
     _display->setHyperlinkDecoration(_profile.hyperlinkDecorationNormal.value(),
                                      _profile.hyperlinkDecorationHover.value());
@@ -1597,7 +1628,7 @@ bool TerminalSession::reloadConfigWithProfile(string const& profileName)
 
     if (!newConfig.profile(profileName))
     {
-        errorLog()(fmt::format("Currently active profile with name '{}' gone.", profileName));
+        errorLog()(std::format("Currently active profile with name '{}' gone.", profileName));
         ++configFailures;
     }
 

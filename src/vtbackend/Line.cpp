@@ -58,7 +58,7 @@ typename Line<Cell>::InflatedBuffer Line<Cell>::reflow(ColumnCount newColumnCoun
 #if 0
                 if (removedColumns.size() > 0 && std::ranges::any_of(removedColumns, [](Cell const& x) {
                         if (!x.empty())
-                            fmt::print("non-empty cell in reflow: {}\n", x.toUtf8());
+                            std::cout << std::format("non-empty cell in reflow: {}\n", x.toUtf8());
                         return !x.empty();
                     }))
                     printf("Wrapping around\n");
@@ -182,7 +182,7 @@ InflatedLineBuffer<Cell> inflate(TrivialLineBuffer const& input)
                                      input.hyperlink);
                 --gapPending;
             }
-            auto const charWidth = unicode::width(nextChar);
+            auto const charWidth = static_cast<int>(unicode::width(nextChar));
             columns.emplace_back(Cell {});
             columns.back().setHyperlink(input.hyperlink);
             columns.back().write(input.textAttributes, nextChar, static_cast<uint8_t>(charWidth));

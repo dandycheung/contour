@@ -8,14 +8,13 @@
 
 #include <libunicode/convert.h>
 
-#include <fmt/chrono.h>
-#include <fmt/format.h>
-
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
 
+#include <chrono>
 #include <cstdio>
+#include <format>
 
 using namespace std::string_view_literals;
 
@@ -42,6 +41,15 @@ namespace // helper functions
         crispy::unreachable();
     }
 } // namespace
+
+std::optional<RGBColor> tryParseColorAttribute(crispy::string_interpolation const& interpolation,
+                                               std::string_view key)
+{
+    if (auto const i = interpolation.attributes.find(key); i != interpolation.attributes.end())
+        return parseColor(i->second);
+
+    return std::nullopt;
+}
 
 std::optional<StatusLineDefinitions::Item> makeStatusLineItem(
     crispy::interpolated_string_fragment const& fragment)
@@ -74,17 +82,8 @@ std::optional<StatusLineDefinitions::Item> makeStatusLineItem(
         if (interpolation.flags.count(text))
             styles.flags.enable(flag);
 
-    if (auto const i = interpolation.attributes.find("Color"); i != interpolation.attributes.end())
-    {
-        if (auto const parsedColor = parseColor(i->second))
-            styles.foregroundColor = parsedColor.value();
-    }
-
-    if (auto const i = interpolation.attributes.find("BackgroundColor"); i != interpolation.attributes.end())
-    {
-        if (auto const parsedColor = parseColor(i->second))
-            styles.backgroundColor = parsedColor.value();
-    }
+    styles.foregroundColor = tryParseColorAttribute(interpolation, "Color");
+    styles.backgroundColor = tryParseColorAttribute(interpolation, "BackgroundColor");
 
     if (auto const i = interpolation.attributes.find("Left"); i != interpolation.attributes.end())
         styles.textLeft = i->second;
@@ -147,6 +146,18 @@ std::optional<StatusLineDefinitions::Item> makeStatusLineItem(
     if (interpolation.name == "VTType")
         return StatusLineDefinitions::VTType { styles };
 
+    if (interpolation.name == "Tabs")
+    {
+        std::optional<RGBColor> activeColor = tryParseColorAttribute(interpolation, "ActiveColor");
+        std::optional<RGBColor> activeBackground = tryParseColorAttribute(interpolation, "ActiveBackground");
+
+        return StatusLineDefinitions::Tabs {
+            styles,
+            activeColor,
+            activeBackground,
+        };
+    }
+
     return std::nullopt;
 }
 
@@ -192,22 +203,30 @@ struct VTSerializer
     StatusLineStyling styling;
     std::string result {};
 
+    std::string makeTextColor(std::optional<RGBColor> const& color, std::string_view defaultSequence = {})
+    {
+        if (!color)
+            return std::string(defaultSequence);
+
+        return std::format("\033[38:2:{}:{}:{}m", color->red, color->green, color->blue);
+    }
+
+    std::string makeBackgroundColor(std::optional<RGBColor> const& color,
+                                    std::string_view defaultSequence = {})
+    {
+        if (!color)
+            return std::string(defaultSequence);
+
+        return std::format("\033[48:2:{}:{}:{}m", color->red, color->green, color->blue);
+    }
+
     void applyStyles(StatusLineDefinitions::Styles const& styles) // {{{
     {
         if (styling == StatusLineStyling::Disabled)
             return;
 
-        if (styles.foregroundColor)
-            result += fmt::format("\033[38:2:{}:{}:{}m",
-                                  styles.foregroundColor->red,
-                                  styles.foregroundColor->green,
-                                  styles.foregroundColor->blue);
-
-        if (styles.backgroundColor)
-            result += fmt::format("\033[48:2:{}:{}:{}m",
-                                  styles.backgroundColor->red,
-                                  styles.backgroundColor->green,
-                                  styles.backgroundColor->blue);
+        result += makeTextColor(styles.foregroundColor);
+        result += makeBackgroundColor(styles.backgroundColor);
 
         result += styles.flags.reduce(std::string {}, [](std::string&& result, CellFlag flag) -> std::string {
             switch (flag)
@@ -277,7 +296,7 @@ struct VTSerializer
     {
         auto const currentMousePosition = vt.currentMousePosition();
         auto const cellFlags = vt.currentScreen().cellFlagsAt(currentMousePosition);
-        return fmt::format("{}", cellFlags);
+        return std::format("{}", cellFlags);
     }
 
     std::string visit(StatusLineDefinitions::CellTextUtf32 const&)
@@ -290,7 +309,7 @@ struct VTSerializer
         auto const cellText32 = unicode::convert_to<char32_t>(std::string_view(cellText));
 
         return ranges::views::transform(
-                   cellText32, [](char32_t ch) { return fmt::format("U+{:04X}", static_cast<uint32_t>(ch)); })
+                   cellText32, [](char32_t ch) { return std::format("U+{:04X}", static_cast<uint32_t>(ch)); })
                | ranges::views::join(" ") | ranges::to<std::string>;
     }
 
@@ -305,7 +324,17 @@ struct VTSerializer
     std::string visit(StatusLineDefinitions::Clock const&)
     {
         crispy::ignore_unused(this);
-        return fmt::format("{:%H:%M}", fmt::localtime(std::time(nullptr)));
+
+        // TODO: Find a more convinient way; The following is printing the time in UTC,
+        //       but we need it in local time.
+        // return std::format("{:%H:%M}", std::chrono::system_clock::now());
+
+        auto now = std::chrono::system_clock::now();
+        std::time_t const nowTimeT = std::chrono::system_clock::to_time_t(now);
+        std::tm const* tm = std::localtime(&nowTimeT);
+        std::stringstream out;
+        out << std::put_time(tm, "%H:%M");
+        return out.str();
     }
 
     std::string visit(StatusLineDefinitions::HistoryLineCount const&)
@@ -317,19 +346,19 @@ struct VTSerializer
         {
             auto const pct =
                 double(vt.viewport().scrollOffset()) / double(vt.primaryScreen().historyLineCount());
-            return fmt::format("{}/{} {:3}%",
+            return std::format("{}/{} {:3}%",
                                vt.viewport().scrollOffset(),
                                vt.primaryScreen().historyLineCount(),
                                int(pct * 100));
         }
         else
-            return fmt::format("{}", vt.primaryScreen().historyLineCount());
+            return std::format("{}", vt.primaryScreen().historyLineCount());
     }
 
     std::string visit(StatusLineDefinitions::Hyperlink const&)
     {
         if (auto const hyperlink = vt.currentScreen().hyperlinkAt(vt.currentMousePosition()))
-            return fmt::format("{}", hyperlink->uri);
+            return std::format("{}", hyperlink->uri);
 
         return {};
     }
@@ -354,7 +383,7 @@ struct VTSerializer
         result += "TRACING";
 
         if (!vt.traceHandler().pendingSequences().empty())
-            result += fmt::format(" (#{}): {}",
+            result += std::format(" (#{}): {}",
                                   vt.traceHandler().pendingSequences().size(),
                                   vt.traceHandler().pendingSequences().front());
         return result;
@@ -371,7 +400,7 @@ struct VTSerializer
     std::string visit(StatusLineDefinitions::SearchPrompt const&)
     {
         if (vt.inputHandler().isEditingSearch())
-            return fmt::format("Search: {}█",
+            return std::format("Search: {}█",
                                unicode::convert_to<char>(std::u32string_view(vt.search().pattern)));
 
         return {};
@@ -406,7 +435,36 @@ struct VTSerializer
         return item.text;
     }
 
-    std::string visit(StatusLineDefinitions::VTType const&) { return fmt::format("{}", vt.terminalId()); }
+    std::string visit(StatusLineDefinitions::VTType const&) { return std::format("{}", vt.terminalId()); }
+
+    std::string visit(StatusLineDefinitions::Tabs const& tabs)
+    {
+        auto const tabsInfo = vt.guiTabsInfoForStatusLine();
+
+        std::string fragment;
+        for (size_t position: std::views::iota(1u, tabsInfo.tabCount + 1))
+        {
+            if (!fragment.empty())
+                fragment += ' ';
+
+            auto const isActivePosition = position == tabsInfo.activeTabPosition;
+            auto const activePositionStylized =
+                isActivePosition && (tabs.activeColor || tabs.activeBackground);
+
+            if (activePositionStylized)
+            {
+                fragment += SGRSAVE();
+                fragment += makeTextColor(tabs.activeColor);
+                fragment += makeBackgroundColor(tabs.activeBackground);
+            }
+
+            fragment += std::to_string(position);
+
+            if (activePositionStylized)
+                fragment += SGRRESTORE();
+        }
+        return fragment;
+    }
     // }}}
 };
 

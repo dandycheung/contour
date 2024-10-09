@@ -34,7 +34,7 @@ auto inline const displayLog =
 auto inline const inputLog =
     logstore::category("gui.input", "Logs input driver details (e.g. GUI input events).");
 auto inline const sessionLog = logstore::category("gui.session", "VT terminal session logs");
-
+auto inline const managerLog = logstore::category("gui.session_manager", "Sessions manager logs");
 namespace detail
 {
     template <typename F>
@@ -111,20 +111,10 @@ constexpr inline vtbackend::Modifiers makeModifiers(Qt::KeyboardModifiers qtModi
         modifiers |= Modifier::Alt;
     if (qtModifiers & Qt::ShiftModifier)
         modifiers |= Modifier::Shift;
-#if defined(__APPLE__)
-    // XXX https://doc.qt.io/qt-5/qt.html#KeyboardModifier-enum
-    //     "Note: On macOS, the ControlModifier value corresponds to the Command keys on the keyboard,
-    //      and the MetaModifier value corresponds to the Control keys."
-    if (qtModifiers & Qt::MetaModifier)
-        modifiers |= Modifier::Control;
-    if (qtModifiers & Qt::ControlModifier)
-        modifiers |= Modifier::Super;
-#else
     if (qtModifiers & Qt::ControlModifier)
         modifiers |= Modifier::Control;
     if (qtModifiers & Qt::MetaModifier)
         modifiers |= Modifier::Super;
-#endif
 
 #if defined(_WIN32)
     // Deal with AltGr on Windows, which is seen by the app as Ctrl+Alt, because
@@ -318,10 +308,10 @@ struct RenderStateManager
 } // namespace contour
 
 template <>
-struct fmt::formatter<contour::RenderState>: public fmt::formatter<std::string>
+struct std::formatter<contour::RenderState>: std::formatter<string_view>
 {
     using State = contour::RenderState;
-    static auto format(State state, format_context& ctx) -> format_context::iterator
+    auto format(State state, auto& ctx) const
     {
         string_view name;
         switch (state)
@@ -331,6 +321,6 @@ struct fmt::formatter<contour::RenderState>: public fmt::formatter<std::string>
             case State::DirtyIdle: name = "dirty-idle"; break;
             case State::DirtyPainting: name = "dirty-painting"; break;
         }
-        return fmt::formatter<string_view> {}.format(name, ctx);
+        return std::formatter<string_view>::format(name, ctx);
     }
 };

@@ -3,8 +3,7 @@
 
 #include <crispy/assert.h>
 
-#include <fmt/format.h>
-
+#include <format>
 #include <optional>
 #include <string>
 #include <variant>
@@ -78,10 +77,11 @@ struct TraceLeave{};
 struct TraceStep{};
 struct ViNormalMode{};
 struct WriteScreen{ std::string chars; }; // "\033[2J\033[3J"
-// CloseTab
-// FocusNextTab
-// FocusPreviousTab
-// OpenTab
+struct CreateNewTab{};
+struct CloseTab{};
+struct SwitchToTab{ int position; };
+struct SwitchToTabLeft{};
+struct SwitchToTabRight{};
 // clang-format on
 
 using Action = std::variant<CancelSelection,
@@ -132,7 +132,12 @@ using Action = std::variant<CancelSelection,
                             TraceLeave,
                             TraceStep,
                             ViNormalMode,
-                            WriteScreen>;
+                            WriteScreen,
+                            CreateNewTab,
+                            CloseTab,
+                            SwitchToTab,
+                            SwitchToTabLeft,
+                            SwitchToTabRight>;
 
 std::optional<Action> fromString(std::string const& name);
 
@@ -242,6 +247,13 @@ namespace documentation
     constexpr inline std::string_view WriteScreen {
         "Writes VT sequence in `chars` member to the screen (bypassing the application)."
     };
+    constexpr inline std::string_view CreateNewTab { "Creates a new tab in the terminal emulator." };
+    constexpr inline std::string_view CloseTab { "Closes current tab." };
+    constexpr inline std::string_view SwitchToTab {
+        "Switch to absolute tab position (starting at number 1)"
+    };
+    constexpr inline std::string_view SwitchToTabLeft { "Switch to tab to the left" };
+    constexpr inline std::string_view SwitchToTabRight { "Switch to tab to the right" };
 } // namespace documentation
 
 inline auto getDocumentation()
@@ -296,20 +308,25 @@ inline auto getDocumentation()
         std::tuple { Action { TraceStep {} }, documentation::TraceStep },
         std::tuple { Action { ViNormalMode {} }, documentation::ViNormalMode },
         std::tuple { Action { WriteScreen {} }, documentation::WriteScreen },
+        std::tuple { Action { CreateNewTab {} }, documentation::CreateNewTab },
+        std::tuple { Action { CloseTab {} }, documentation::CloseTab },
+        std::tuple { Action { SwitchToTab {} }, documentation::SwitchToTab },
+        std::tuple { Action { SwitchToTabLeft {} }, documentation::SwitchToTabLeft },
+        std::tuple { Action { SwitchToTabRight {} }, documentation::SwitchToTabRight },
     };
 }
 
 } // namespace contour::actions
 
 // {{{ fmtlib custom formatters
-#define DECLARE_ACTION_FMT(T)                                                                          \
-    template <>                                                                                        \
-    struct fmt::formatter<contour::actions::T>: fmt::formatter<std::string_view>                       \
-    {                                                                                                  \
-        auto format(contour::actions::T const&, format_context& ctx) const -> format_context::iterator \
-        {                                                                                              \
-            return formatter<string_view>::format(#T, ctx);                                            \
-        }                                                                                              \
+#define DECLARE_ACTION_FMT(T)                                                    \
+    template <>                                                                  \
+    struct std::formatter<contour::actions::T>: std::formatter<std::string_view> \
+    {                                                                            \
+        auto format(contour::actions::T const&, auto& ctx) const                 \
+        {                                                                        \
+            return formatter<string_view>::format(#T, ctx);                      \
+        }                                                                        \
     };
 
 // {{{ declare
@@ -362,20 +379,32 @@ DECLARE_ACTION_FMT(TraceLeave)
 DECLARE_ACTION_FMT(TraceStep)
 DECLARE_ACTION_FMT(ViNormalMode)
 DECLARE_ACTION_FMT(WriteScreen)
+DECLARE_ACTION_FMT(CreateNewTab)
+DECLARE_ACTION_FMT(CloseTab)
+DECLARE_ACTION_FMT(SwitchToTabLeft)
+DECLARE_ACTION_FMT(SwitchToTabRight)
 // }}}
 #undef DECLARE_ACTION_FMT
+
+template <>
+struct std::formatter<contour::actions::SwitchToTab>: std::formatter<std::string>
+{
+    auto format(contour::actions::SwitchToTab const& value, auto& ctx) const
+    {
+        return formatter<string>::format(std::format("SwitchToTab {{ position: {} }}", value.position), ctx);
+    }
+};
 
 #define HANDLE_ACTION(T)                                                  \
     if (std::holds_alternative<contour::actions::T>(_action))             \
     {                                                                     \
-        name = fmt::format("{}", std::get<contour::actions::T>(_action)); \
+        name = std::format("{}", std::get<contour::actions::T>(_action)); \
     }
 
 template <>
-struct fmt::formatter<contour::actions::Action>: fmt::formatter<std::string>
+struct std::formatter<contour::actions::Action>: std::formatter<std::string>
 {
-    auto format(contour::actions::Action const& _action,
-                format_context& ctx) const -> format_context::iterator
+    auto format(contour::actions::Action const& _action, auto& ctx) const
     {
         std::string name = "Unknown action";
         // {{{ handle
@@ -426,41 +455,45 @@ struct fmt::formatter<contour::actions::Action>: fmt::formatter<std::string>
         HANDLE_ACTION(TraceLeave);
         HANDLE_ACTION(TraceStep);
         HANDLE_ACTION(ViNormalMode);
+        HANDLE_ACTION(CreateNewTab);
+        HANDLE_ACTION(CloseTab);
+        HANDLE_ACTION(SwitchToTabLeft);
+        HANDLE_ACTION(SwitchToTabRight);
+        if (std::holds_alternative<contour::actions::SwitchToTab>(_action))
+        {
+            const auto action = std::get<contour::actions::SwitchToTab>(_action);
+            name = std::format("SwitchToTab, position: {}", action.position);
+        }
         if (std::holds_alternative<contour::actions::WriteScreen>(_action))
         {
             const auto writeScreenAction = std::get<contour::actions::WriteScreen>(_action);
-            name = fmt::format("{}, chars: '{}'", writeScreenAction, writeScreenAction.chars);
+            name = std::format("{}, chars: '{}'", writeScreenAction, writeScreenAction.chars);
         }
         if (std::holds_alternative<contour::actions::CreateSelection>(_action))
         {
             const auto createSelectionAction = std::get<contour::actions::CreateSelection>(_action);
             name =
-                fmt::format("{}, delimiters: '{}'", createSelectionAction, createSelectionAction.delimiters);
+                std::format("{}, delimiters: '{}'", createSelectionAction, createSelectionAction.delimiters);
         }
         // }}}
-        return formatter<string_view>::format(name, ctx);
+        return formatter<string>::format(name, ctx);
     }
 };
 
 template <>
-struct fmt::formatter<contour::actions::CopyFormat>
+struct std::formatter<contour::actions::CopyFormat>: std::formatter<std::string_view>
 {
-    template <typename ParseContext>
-    constexpr auto parse(ParseContext& ctx)
+    auto format(contour::actions::CopyFormat value, auto& ctx) const
     {
-        return ctx.begin();
-    }
-    template <typename FormatContext>
-    auto format(contour::actions::CopyFormat value, FormatContext& ctx) const
-    {
+        string_view output;
         switch (value)
         {
-            case contour::actions::CopyFormat::Text: return fmt::format_to(ctx.out(), "Text");
-            case contour::actions::CopyFormat::HTML: return fmt::format_to(ctx.out(), "HTML");
-            case contour::actions::CopyFormat::PNG: return fmt::format_to(ctx.out(), "PNG");
-            case contour::actions::CopyFormat::VT: return fmt::format_to(ctx.out(), "VT");
+            case contour::actions::CopyFormat::Text: output = "Text"; break;
+            case contour::actions::CopyFormat::HTML: output = "HTML"; break;
+            case contour::actions::CopyFormat::PNG: output = "PNG"; break;
+            case contour::actions::CopyFormat::VT: output = "VT"; break;
         }
-        crispy::unreachable();
+        return formatter<string_view>::format(output, ctx);
     }
 };
 

@@ -104,7 +104,31 @@
 
     -->
 
-    <release version="0.4.4" urgency="medium" type="development">
+    <release version="0.5.2" urgency="medium" type="development">
+      <description>
+        <ul>
+          <li>Add terminal tabs (#90)</li>
+          <li>Add binding to exit normal mode with `Esc` (#1604)</li>
+          <li>Add config option to switch into insert mode after yank (#1604)</li>
+          <li>Improves window size/resize handling on HiDPI monitor settings (#1628)</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.5.1" urgency="medium" date="2024-09-30">
+      <description>
+        <ul>
+          <li>Fixes vi-mode motions like `viW`, `yiW`, `oiW` as well as `B` and `W`</li>
+          <li>Fixes rendered backend loading from config</li>
+          <li>Fixes mouse wheel scrolling on High-DPI screens feeling too slow</li>
+          <li>Enable support for Unicode version 16.0.0 (#1606)</li>
+          <li>Port to C++20's `std::format()` (#1598)</li>
+          <li>Drop support for Ubuntu 23.10 and older. In order to have less burdain of maintencne, we only support the latest LTS of Ubuntu, which currently is 24.04 (#1607)</li>
+        </ul>
+      </description>
+    </release>
+
+    <release version="0.5.0" urgency="medium" date="2024-09-18">
       <description>
         <ul>
           <li>macOS package is now Apple Silicon native</li>
@@ -132,6 +156,8 @@
           <li>Add case-insensitive smart search (#1410)</li>
           <li>Add OpenBSD support</li>
           <li>Add new CLI command: `contour info config` to list missing entries from config file (#1125).</li>
+          <li>Add xdg-terminal-exec support (#1570).</li>
+          <li>Add predefined color palettes (monokai, gruvbox-light/dark, solarized-light/dark, papercolor-light/dark, one-light, one-dark) (#1285).</li>
           <li>Update of contour.desktop file (#1423)</li>
           <li>Changed configuration entry values for `font_locator` down to `native` and `mock` only (#1538).</li>
           <li>Do not export the `TERM` environment variable on Windows OS (when using ConPTY).</li>

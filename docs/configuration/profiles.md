@@ -109,7 +109,21 @@ profiles:
     fullscreen: false
 ```
 
+### `search_mode_switch`
+The configuration option determines whether the editor should automatically switch from search mode back to insert mode upon exiting a search. If enabled, the terminal will return to insert mode, allowing for immediate text input. If disabled, the terminal will remain in normal mode.
+``` yaml
+profiles:
+  profile_name:
+    search_mode_switch: true
+```
 
+### `insert_after_yank`
+This configuration option determines whether the terminal should automatically switch from normal mode to insert mode after executing a yank command. When enabled, the terminal will enter insert mode, allowing for immediate text input. If disabled, the terminal will remain in normal mode, maintaining command functionality.
+``` yaml
+profiles:
+  profile_name:
+    insert_after_yank: false
+```
 
 ### `maximized`
 configuration option determines whether the terminal window should be maximized when the specified profile is activated. Maximizing a window expands it to fill the entire available space on the screen, excluding the taskbar or other system elements.
@@ -414,7 +428,9 @@ profiles:
 
 
 ### `colors`
-section in the configuration file allows you to specify the colorscheme to use for the terminal.
+section in the configuration file allows you to specify the colorscheme to use for the terminal. You can use one of the predefined color palettes as a setting for colors entry. 
+List of predefined colorschemes: `contour`(default colors), `monokai`, `one-light`, `one-dark`, `gruvbox-light`, `gruvbox-dark`, `solarized-light`, `solarized-dark`, `papercolor-light`, `papercolor-dark`.
+
 ``` yaml
 profiles:
   profile_name:

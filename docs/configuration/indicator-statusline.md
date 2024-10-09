@@ -11,7 +11,7 @@ profiles:
         status_line:
             indicator:
                 left: "{VTType} │ {InputMode:Bold,Color=#C0C030}{SearchPrompt:Left= │ }{TraceMode:Bold,Color=#FFFF00,Left= │ }{ProtectedMode:Bold,Left= │ }"
-                middle: "{Title:Left= « ,Right= » ,Color=#20c0c0}"
+                middle: "{Tabs}{Title:Left= « ,Right= » ,Color=#20c0c0}"
                 right: "{HistoryLineCount:Faint,Color=#c0c0c0} │ {Clock:Bold} "
 ```
 
@@ -32,6 +32,7 @@ Variable             | Description
 `{ProtectedMode}`    | indicates protected mode, if currently enabled
 `{SearchMode}`       | indicates search highlight mode, if currently active
 `{SearchPrompt}`     | search input prompt, if currently active
+`{Tabs}`             | indicates active tabs
 `{Text}`             | given text (makes only sense when customized with flags)
 `{Title}`            | current window title
 `{VTType}`           | currently active VT emulation type
@@ -72,3 +73,13 @@ These parameters apply to all variables above.
 
 The `Command` variable is the only one that requires a special attribute, `Program` whose value
 is the command to execute.
+
+### Tabs formatting extensions
+
+The `Tabs` key allows additional styling through the following attributes:
+
+Parameter                 | Description
+--------------------------|--------------------------------------------------------------------
+`ActiveColor`             | color of the active tab
+`ActiveBackground`        | background color of the active tab
+
